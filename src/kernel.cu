@@ -40,7 +40,7 @@
 
 #include "defs.h"
 
-__global__ void matchFile(const char* file_data, size_t file_len, const char* signature, size_t len, int* match)
+__global__ void matchFile(const char* file_data, size_t file_len, const char* signature, size_t len, uint8_t* match)
 {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (idx <= file_len - len) {
@@ -116,16 +116,16 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
         sig_bufs.push_back(ptr);
     }
 
-    std::vector<int*> d_matches {};
+    std::vector<uint8_t*> d_matches {};
     for (size_t i = 0; i < inputs.size(); i++) {
-        int* ptr = 0;
-        check_cuda_error(cudaMalloc(&ptr, inputs[i].size * sizeof(int) * 2));
+        uint8_t* ptr = 0;
+        check_cuda_error(cudaMalloc(&ptr, inputs[i].size * 2));
         d_matches.push_back(ptr);
     }
 
-    std::vector<int*> matches {};
+    std::vector<uint8_t*> matches {};
     for (size_t i = 0; i < inputs.size(); i++) {
-        int* ptr = (int*)malloc(inputs[i].size * sizeof(int) * 2);
+        uint8_t* ptr = (uint8_t*)malloc(inputs[i].size * 2);
         matches.push_back(ptr);
     }
 
@@ -147,7 +147,7 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
                 matches[file_idx][i] = 0;
             }
 
-            cudaMemcpyAsync(d_matches[file_idx], matches[file_idx], sizeof(int) * inputs[file_idx].size * 2, cudaMemcpyHostToDevice, streams[file_idx]);
+            cudaMemcpyAsync(d_matches[file_idx], matches[file_idx], inputs[file_idx].size * 2, cudaMemcpyHostToDevice, streams[file_idx]);
             // launch the kernel!
             // your job: figure out the optimal dimensions
             int threadsPerBlock = 1024;
@@ -170,7 +170,7 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
                 file_bufs[file_idx], inputs[file_idx].size * 2,
                 sig_bufs[sig_idx], signatures[sig_idx].size, d_matches[file_idx]);
 
-            cudaMemcpyAsync(matches[file_idx], d_matches[file_idx], sizeof(int) * inputs[file_idx].size * 2, cudaMemcpyDeviceToHost, streams[file_idx]);
+            cudaMemcpyAsync(matches[file_idx], d_matches[file_idx], inputs[file_idx].size * 2, cudaMemcpyDeviceToHost, streams[file_idx]);
 
             for (int i = 0; i < inputs[file_idx].size * 2; i++) {
                 if (matches[file_idx][i]) {
