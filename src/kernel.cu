@@ -45,7 +45,7 @@ __global__ void matchFile(const char* file_data, size_t file_len, const char* si
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (idx <= file_len - len) {
         int flag = 1;
-        for (size_t i = 0; i < len; i++) {
+        for (int i = 0; i < len; i++) {
             if (file_data[idx + i] != signature[i]) {
                 flag = 0;
             }
@@ -103,7 +103,7 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
 
         // allocate memory on the device for the file
         char* ptr = 0;
-        check_cuda_error(cudaMalloc(&ptr, inputs[i].size));
+        check_cuda_error(cudaMalloc(&ptr, inputs[i].size * 2));
         file_bufs.push_back(ptr);
     }
 
@@ -119,13 +119,13 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
     std::vector<int*> d_matches {};
     for (size_t i = 0; i < inputs.size(); i++) {
         int* ptr = 0;
-        check_cuda_error(cudaMalloc(&ptr, inputs[i].size * sizeof(int)));
+        check_cuda_error(cudaMalloc(&ptr, inputs[i].size * sizeof(int) * 2));
         d_matches.push_back(ptr);
     }
 
     std::vector<int*> matches {};
     for (size_t i = 0; i < inputs.size(); i++) {
-        int* ptr = (int*)malloc(inputs[i].size * sizeof(int));
+        int* ptr = (int*)malloc(inputs[i].size * sizeof(int) * 2);
         matches.push_back(ptr);
     }
 
@@ -134,23 +134,24 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
 
         // Debugging code
         // auto input_string = to_string(inputs[file_idx].data, inputs[file_idx].size);
+        // std::cout << input_string.size() << " " << inputs[file_idx].size << std::endl;
         // std::cout << input_string << std::endl;
 
         // asynchronously copy the file contents from host memory
         // (the `inputs`) to device memory (file_bufs, which we allocated above)
-        cudaMemcpyAsync(file_bufs[file_idx], input, inputs[file_idx].size,
+        cudaMemcpyAsync(file_bufs[file_idx], input, inputs[file_idx].size * 2,
             cudaMemcpyHostToDevice, streams[file_idx]); // pass in the stream here to do this async
 
         for (size_t sig_idx = 0; sig_idx < signatures.size(); sig_idx++) {
-            for (int i = 0; i < inputs[file_idx].size; i++) {
+            for (int i = 0; i < inputs[file_idx].size * 2; i++) {
                 matches[file_idx][i] = 0;
             }
 
-            cudaMemcpyAsync(d_matches[file_idx], matches[file_idx], sizeof(int) * inputs[file_idx].size, cudaMemcpyHostToDevice, streams[file_idx]);
+            cudaMemcpyAsync(d_matches[file_idx], matches[file_idx], sizeof(int) * inputs[file_idx].size * 2, cudaMemcpyHostToDevice, streams[file_idx]);
             // launch the kernel!
             // your job: figure out the optimal dimensions
             int threadsPerBlock = 1024;
-            int blocksPerGrid = (inputs[file_idx].size + threadsPerBlock - 1) / threadsPerBlock;
+            int blocksPerGrid = (inputs[file_idx].size * 2 + threadsPerBlock - 1) / threadsPerBlock;
 
             /*
                     This launch happens asynchronously. This means that the CUDA driver returns control
@@ -166,14 +167,14 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
                     you should *definitely* be doing more work per kernel than in our example!
             */
             matchFile<<<blocksPerGrid, threadsPerBlock, /* shared memory per block: */ 0, streams[file_idx]>>>(
-                file_bufs[file_idx], inputs[file_idx].size,
+                file_bufs[file_idx], inputs[file_idx].size * 2,
                 sig_bufs[sig_idx], signatures[sig_idx].size, d_matches[file_idx]);
 
-            cudaMemcpyAsync(matches[file_idx], d_matches[file_idx], sizeof(int) * inputs[file_idx].size, cudaMemcpyDeviceToHost, streams[file_idx]);
+            cudaMemcpyAsync(matches[file_idx], d_matches[file_idx], sizeof(int) * inputs[file_idx].size * 2, cudaMemcpyDeviceToHost, streams[file_idx]);
 
-            for (int i = 0; i < inputs[file_idx].size; i++) {
+            for (int i = 0; i < inputs[file_idx].size * 2; i++) {
                 if (matches[file_idx][i]) {
-                    printf("%s: %s matches at %d\n", inputs[file_idx].name.c_str(), signatures[sig_idx].name.c_str(), i);
+                    printf("%s: %s\n", inputs[file_idx].name.c_str(), signatures[sig_idx].name.c_str());
                     break;
                 }
             }
