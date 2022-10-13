@@ -37,23 +37,73 @@
 
 #include "defs.h"
 
-__global__ void matchFile(const uint8_t* file_data, size_t file_len, const char* signature, size_t len)
+__device__ int matchSignature(const uint8_t *data, const char *signature, size_t len)
 {
-	// TODO: your code!
+	const char *hex_table = "0123456789abcdef";
+	for (size_t i = 0; i < len / 2; i++)
+	{
+		uint8_t hl = data[i] & 0xF;
+		uint8_t hh = (data[i] >> 4) & 0xF;
+
+		size_t j = 2 * i;
+		// printf("Comparing %c%c to %c%c\n", signature[j], signature[j+1], hex_table[hh], hex_table[hl]);
+		if (signature[j] != '?' && hex_table[hh] != signature[j])
+		{
+			return 0;
+		}		
+		if (signature[j + 1] != '?' && hex_table[hl] != signature[j + 1])
+		{
+			return 0;
+		}		
+	}
+
+	/*
+	printf("Matched %s with ", signature);
+	for (size_t i = 0; i < len / 2; i++)
+	{
+		uint8_t hl = data[i] & 0xF;
+		uint8_t hh = (data[i] >> 4) & 0xF;
+
+		printf("%c%c", hex_table[hh], hex_table[hl]);
+	}
+	printf("\n");
+	*/
+	return 1;
+}
+
+__global__ void matchFile(const uint8_t* file_data, size_t file_len, const char* signature, size_t len, uint8_t *result)
+{
+	size_t num_threads_per_block = blockDim.x;
+	size_t num_blocks = gridDim.x;
+	size_t num_threads = num_threads_per_block * num_blocks;
+	size_t n_max = file_len * 2 - len + 1;
+	size_t workload = (n_max - 1) / num_threads + 1;
+	// printf("Launched thread: %d, block: %d\n", threadIdx.x, blockIdx.x);
+	
+	size_t n_start = (blockIdx.x * num_threads_per_block + threadIdx.x) * workload;
+	size_t n_end = min(n_start + workload, n_max);
+
+	// printf("Iterations: %lu, Workload: %lu, Offset: %lu, End: %lu\n", n_max, workload, n_start, n_end);
+	for (size_t n = n_start; n < n_end; n++)
+	{
+		if (matchSignature(file_data + n, signature, len))
+		{
+			*result = 1;
+			return;
+		}
+	}
 }
 
 void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inputs)
 {
-	{
-		cudaDeviceProp prop;
-		check_cuda_error(cudaGetDeviceProperties(&prop, 0));
+	cudaDeviceProp prop;
+	check_cuda_error(cudaGetDeviceProperties(&prop, 0));
 
-		fprintf(stderr, "cuda stats:\n");
-		fprintf(stderr, "  # of SMs: %d\n", prop.multiProcessorCount);
-		fprintf(stderr, "  global memory: %.2f MB\n", prop.totalGlobalMem / 1024.0 / 1024.0);
-		fprintf(stderr, "  shared mem per block: %zu bytes\n", prop.sharedMemPerBlock);
-		fprintf(stderr, "  constant memory: %zu bytes\n", prop.totalConstMem);
-	}
+	fprintf(stderr, "cuda stats:\n");
+	fprintf(stderr, "  # of SMs: %d\n", prop.multiProcessorCount);
+	fprintf(stderr, "  global memory: %.2f MB\n", prop.totalGlobalMem / 1024.0 / 1024.0);
+	fprintf(stderr, "  shared mem per block: %zu bytes\n", prop.sharedMemPerBlock);
+	fprintf(stderr, "  constant memory: %zu bytes\n", prop.totalConstMem);
 
 	/*
 		Here, we are creating one stream per file just for demonstration purposes;
@@ -82,6 +132,17 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
 		cudaMemcpy(ptr, signatures[i].data, signatures[i].size, cudaMemcpyHostToDevice);
 		sig_bufs.push_back(ptr);
 	}
+	
+	cudaError_t code;
+	uint8_t *dresult;
+	code = cudaMalloc(&dresult, inputs.size() * signatures.size() * sizeof(uint8_t));
+	if (code != cudaSuccess)
+	{
+		fprintf(stderr, "Error: %s\n", cudaGetErrorString(code));
+	}
+
+	cudaMemset(dresult, 0, inputs.size() * signatures.size() * sizeof(uint8_t));
+
 
 	for(size_t file_idx = 0; file_idx < inputs.size(); file_idx++)
 	{
@@ -108,17 +169,34 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
 				128 kernels can run concurrently --- subject to resource constraints. This means
 				you should *definitely* be doing more work per kernel than in our example!
 			*/
-			matchFile<<<1, 1, /* shared memory per block: */ 0, streams[file_idx]>>>(
+			matchFile<<<128, 32, /* shared memory per block: */ 0, streams[file_idx]>>>(
 				file_bufs[file_idx], inputs[file_idx].size,
-				sig_bufs[sig_idx], signatures[sig_idx].size);
+				sig_bufs[sig_idx], signatures[sig_idx].size, dresult + file_idx * signatures.size() + sig_idx);
 
-
-			// example output printing. don't forget to change this!
-			printf("%s: %s\n", inputs[file_idx].name.c_str(), signatures[sig_idx].name.c_str());
+			// printf("%s: %s\n", inputs[file_idx].name.c_str(), signatures[sig_idx].name.c_str());
 		}
 	}
 
+	uint8_t *result = (uint8_t*)malloc(inputs.size() * signatures.size() * sizeof(uint8_t));
+	code = cudaMemcpy(result, dresult, inputs.size() * signatures.size() * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+	if (code != cudaSuccess)
+	{
+		fprintf(stderr, "Error: %s\n", cudaGetErrorString(code));
+	}
 
+	for(size_t file_idx = 0; file_idx < inputs.size(); file_idx++)
+	{
+		for(size_t sig_idx = 0; sig_idx < signatures.size(); sig_idx++)
+		{
+			if (result[file_idx * signatures.size() + sig_idx])
+			{
+				printf("%s: %s\n", inputs[file_idx].name.c_str(), signatures[sig_idx].name.c_str());
+			}	
+		}
+	}
+
+	cudaFree(dresult);
+	free(result);
 	// free the device memory, though this is not strictly necessary
 	// (the CUDA driver will clean up when your program exits)
 	for(auto buf : file_bufs)
