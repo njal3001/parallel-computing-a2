@@ -1,38 +1,41 @@
 /*
-	CS3210 Assignment 2
-	CUDA Virus Scanning
+        CS3210 Assignment 2
+        CUDA Virus Scanning
 
-	Most of your CUDA code should go in here.
+        Most of your CUDA code should go in here.
 
-	Feel free to change any code in the skeleton, as long as you conform
-	to the input and output formats specified in the assignment pdf.
+        Feel free to change any code in the skeleton, as long as you conform
+        to the input and output formats specified in the assignment pdf.
 
-	If you rename this file or add new files, remember to modify the
-	Makefile! Just make sure (haha) that the default target still builds
-	your program, and you don't rename the program (`scanner`).
+        If you rename this file or add new files, remember to modify the
+        Makefile! Just make sure (haha) that the default target still builds
+        your program, and you don't rename the program (`scanner`).
 
-	The skeleton demonstrates how asnychronous kernel launches can be
-	done; it is up to you to decide (and implement!) the parallelisation
-	paradigm for the kernel. The provided implementation is not great,
-	since it launches one kernel per file+signature combination (a lot!).
-	You should try to do more work per kernel in your implementation.
+        The skeleton demonstrates how asnychronous kernel launches can be
+        done; it is up to you to decide (and implement!) the parallelisation
+        paradigm for the kernel. The provided implementation is not great,
+        since it launches one kernel per file+signature combination (a lot!).
+        You should try to do more work per kernel in your implementation.
 
-	You can launch as many kernels as you want; if any preprocessing is
-	needed for your algorithm of choice, you can also do that on the GPU
-	by running different kernels.
+        You can launch as many kernels as you want; if any preprocessing is
+        needed for your algorithm of choice, you can also do that on the GPU
+        by running different kernels.
 
-	'defs.h' contains the definitions of the structs containing the input
-	and signature data parsed by the provided skeleton code; there should
-	be no need to change it, but you can if you want to.
+        'defs.h' contains the definitions of the structs containing the input
+        and signature data parsed by the provided skeleton code; there should
+        be no need to change it, but you can if you want to.
 
-	'common.cpp' contains the aforementioned parsing for the input files.
-	The input files are already efficiently read with mmap(), so there
-	should be little to no gain trying to optimise that portion of the
-	skeleton.
+        'common.cpp' contains the aforementioned parsing for the input files.
+        The input files are already efficiently read with mmap(), so there
+        should be little to no gain trying to optimise that portion of the
+        skeleton.
 
-	Remember: print any debugging statements to STDERR!
+        Remember: print any debugging statements to STDERR!
 */
 
+#include <iomanip>
+#include <iostream>
+#include <sstream>
 #include <vector>
 
 #include "defs.h"
