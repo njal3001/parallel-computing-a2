@@ -76,14 +76,16 @@ __global__ void matchFile(const uint8_t* file_data, size_t file_len, const char*
 	size_t num_threads_per_block = blockDim.x;
 	size_t num_blocks = gridDim.x;
 	size_t num_threads = num_threads_per_block * num_blocks;
-	size_t n_max = file_len * 2 - len + 1;
+	size_t n_max = file_len - len / 2 + 1;
 	size_t workload = (n_max - 1) / num_threads + 1;
 	// printf("Launched thread: %d, block: %d\n", threadIdx.x, blockIdx.x);
 	
 	size_t n_start = (blockIdx.x * num_threads_per_block + threadIdx.x) * workload;
 	size_t n_end = min(n_start + workload, n_max);
 
-	// printf("Iterations: %lu, Workload: %lu, Offset: %lu, End: %lu\n", n_max, workload, n_start, n_end);
+	// printf("Checking %s\n", signature);
+	// printf("File size: %lu, Signature size: %lu, Iterations: %lu, Workload: %lu, Offset: %lu, End: %lu\n",
+	//	file_len, len, n_max, workload, n_start, n_end);
 	for (size_t n = n_start; n < n_end; n++)
 	{
 		if (matchSignature(file_data + n, signature, len))
@@ -115,7 +117,7 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
 	std::vector<uint8_t*> file_bufs {};
 	for(size_t i = 0; i < inputs.size(); i++)
 	{
-		cudaStreamCreate(&streams[i]);
+		check_cuda_error(cudaStreamCreate(&streams[i]));
 
 		// allocate memory on the device for the file
 		uint8_t* ptr = 0;
@@ -129,27 +131,25 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
 	{
 		char* ptr = 0;
 		check_cuda_error(cudaMalloc(&ptr, signatures[i].size));
-		cudaMemcpy(ptr, signatures[i].data, signatures[i].size, cudaMemcpyHostToDevice);
+		check_cuda_error(cudaMemcpy(ptr, signatures[i].data, signatures[i].size,
+			cudaMemcpyHostToDevice));
 		sig_bufs.push_back(ptr);
 	}
 	
-	cudaError_t code;
 	uint8_t *dresult;
-	code = cudaMalloc(&dresult, inputs.size() * signatures.size() * sizeof(uint8_t));
-	if (code != cudaSuccess)
-	{
-		fprintf(stderr, "Error: %s\n", cudaGetErrorString(code));
-	}
+	size_t result_size = inputs.size() * signatures.size() * sizeof(uint8_t);
+	check_cuda_error(cudaMalloc(&dresult, result_size));
+	// printf("Result size: %lu\n", result_size);
 
-	cudaMemset(dresult, 0, inputs.size() * signatures.size() * sizeof(uint8_t));
-
+	cudaMemset(dresult, 0, result_size);
 
 	for(size_t file_idx = 0; file_idx < inputs.size(); file_idx++)
 	{
+		// printf("File %lu\n", file_idx);
 		// asynchronously copy the file contents from host memory
 		// (the `inputs`) to device memory (file_bufs, which we allocated above)
-		cudaMemcpyAsync(file_bufs[file_idx], inputs[file_idx].data, inputs[file_idx].size,
-			cudaMemcpyHostToDevice, streams[file_idx]);    // pass in the stream here to do this async
+		check_cuda_error(cudaMemcpyAsync(file_bufs[file_idx], inputs[file_idx].data,
+			inputs[file_idx].size, cudaMemcpyHostToDevice, streams[file_idx]));
 
 		for(size_t sig_idx = 0; sig_idx < signatures.size(); sig_idx++)
 		{
@@ -157,7 +157,7 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
 			// your job: figure out the optimal dimensions
 
 			/*
-				This launch happens asynchronously. This means that the CUDA driver returns control
+				This launch happen asynchronously. This means that the CUDA driver returns control
 				to our code immediately, without waiting for the kernel to finish. We can then
 				run another iteration of this loop to launch more kernels.
 
@@ -169,20 +169,17 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
 				128 kernels can run concurrently --- subject to resource constraints. This means
 				you should *definitely* be doing more work per kernel than in our example!
 			*/
-			matchFile<<<128, 32, /* shared memory per block: */ 0, streams[file_idx]>>>(
+			matchFile<<<32, 32, /* shared memory per block: */ 0, streams[file_idx]>>>(
 				file_bufs[file_idx], inputs[file_idx].size,
-				sig_bufs[sig_idx], signatures[sig_idx].size, dresult + file_idx * signatures.size() + sig_idx);
+				sig_bufs[sig_idx], signatures[sig_idx].size,
+				dresult + file_idx * signatures.size() + sig_idx);
 
 			// printf("%s: %s\n", inputs[file_idx].name.c_str(), signatures[sig_idx].name.c_str());
 		}
 	}
 
-	uint8_t *result = (uint8_t*)malloc(inputs.size() * signatures.size() * sizeof(uint8_t));
-	code = cudaMemcpy(result, dresult, inputs.size() * signatures.size() * sizeof(uint8_t), cudaMemcpyDeviceToHost);
-	if (code != cudaSuccess)
-	{
-		fprintf(stderr, "Error: %s\n", cudaGetErrorString(code));
-	}
+	uint8_t *result = (uint8_t*)malloc(result_size);
+	check_cuda_error(cudaMemcpy(result, dresult, result_size, cudaMemcpyDeviceToHost));
 
 	for(size_t file_idx = 0; file_idx < inputs.size(); file_idx++)
 	{
@@ -190,13 +187,15 @@ void runScanner(std::vector<Signature>& signatures, std::vector<InputFile>& inpu
 		{
 			if (result[file_idx * signatures.size() + sig_idx])
 			{
-				printf("%s: %s\n", inputs[file_idx].name.c_str(), signatures[sig_idx].name.c_str());
+				printf("%s: %s\n", inputs[file_idx].name.c_str(),
+					signatures[sig_idx].name.c_str());
 			}	
 		}
 	}
 
 	cudaFree(dresult);
 	free(result);
+
 	// free the device memory, though this is not strictly necessary
 	// (the CUDA driver will clean up when your program exits)
 	for(auto buf : file_bufs)
