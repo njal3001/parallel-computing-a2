@@ -3,3 +3,5 @@
 cached-results.txt
 scanner
 profile.txt
+performance_tests/
+measurements/

@@ -80,7 +80,9 @@ __global__ void matchFile(const uint8_t* file_data, size_t file_len, const char*
     size_t workload = (n_max - 1) / num_threads + 1;
     // printf("Launched thread: %d, block: %d\n", threadIdx.x, blockIdx.x);
 
-    size_t n_start = (blockIdx.x * num_threads_per_block + threadIdx.x) * workload;
+    size_t tid = blockIdx.x * num_threads_per_block + threadIdx.x;
+
+    size_t n_start = tid * workload;
     size_t n_end = min(n_start + workload, n_max);
 
     // printf("Checking %s\n", signature);
