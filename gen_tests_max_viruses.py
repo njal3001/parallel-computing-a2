@@ -127,10 +127,11 @@ def main(sig_file: str, output_dir: str, num_files: int, virus_chance: float, ma
 
 	virus_idx = 1
 	benign_idx = 1
+	# File i has i virus
 	for i in range(0, num_files):
 		is_virus = random.random() < virus_chance
 
-		virus_count = max_viruses
+		virus_count = i + 1
 		viruses = random.choices(all_sigs, k=virus_count)
 
 		if is_virus:
