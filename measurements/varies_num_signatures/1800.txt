@@ -1,0 +1,26 @@
+cache hash: 62b1f67576285c426706bfc14053405f54a7c1686a37590a87fcef4296058720
+stale cache, rerunning sequential implementation
+this may take a while...
+
+running your implementation...
+ideally, this should not take so long (:
+time to beat: 734.599s
+-------------------------
+false positives:
+none
+-------------------------
+false negatives:
+none
+-------------------------
+
+summary:
+  true pos:    13258
+  false pos:   0
+  false neg:   0
+
+time taken: 47.330s vs 734.599s
+speedup: 15.521x
+F-beta = 1.0000
+
+parallel speedup (for bonus): 0.179x
+

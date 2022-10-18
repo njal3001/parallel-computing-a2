@@ -1,1 +1,5 @@
 ./scanner
+.vscode/
+cached-results.txt
+scanner
+profile.txt

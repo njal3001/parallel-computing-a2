@@ -10,6 +10,14 @@ SEED = os.urandom(32)
 MIN_FILE_SIZE = 4096
 MAX_FILE_SIZE = 8 * 1024 * 1024
 
+def random_bytes(n: int) -> bytes:
+	if sys.version_info[1] >= 9:        # random.randbytes only in 3.9+
+		return random.randbytes(n)
+	else:
+		return bytes([ random.getrandbits(8) for _ in range(0, n) ])
+
+
+
 def parse_signatures(lines: Iterable[str]) -> Iterable[Tuple[bytes, str]]:
 	for line in lines:
 		kv = line.strip().split(':')
@@ -18,10 +26,9 @@ def parse_signatures(lines: Iterable[str]) -> Iterable[Tuple[bytes, str]]:
 		if '?' not in kv[1]:
 			yield bytes.fromhex(kv[1]), kv[0]
 		else:
-			n = 1024
+			n = 0
 			# https://stackoverflow.com/questions/69792413
-			chars = "0123456789abcdef"
-			random.choices(chars, k=7)
+			chars = random.choices("0123456789abcdef", k=7)
 			for p in map(iter, itertools.product(chars, repeat=kv[1].count('?'))):
 				if n < 1024:
 					n += 1
@@ -61,17 +68,20 @@ def generate_benign(idx: int, sigs: Iterable[Tuple[bytes, str]]) -> Tuple[str, b
 	remaining_virus_size = total_virus_size
 
 	p = 0
+	just_added = False
 	while p < len(pieces):
 		remaining = file_size - remaining_virus_size - len(file)
-		if random.random() < 0.5:
-			file += random.randbytes(random.randrange(0, remaining))
-		else:
+		if random.random() < 0.5 or just_added:
+			just_added = False
+			file += random_bytes(random.randrange(0, remaining))
+		else :
+			just_added = True
 			remaining_virus_size -= len(pieces[p])
 			file += pieces[p]
 			p += 1
 
 	if len(file) < file_size:
-		file += random.randbytes(file_size - len(file))
+		file += random_bytes(file_size - len(file))
 
 	return f"benign-{idx:04}", file
 
@@ -88,14 +98,14 @@ def generate_virus(idx: int, sigs: Iterable[Tuple[bytes, str]]) -> Tuple[str, by
 	while v < len(sigs):
 		remaining = file_size - remaining_virus_size - len(file)
 		if random.random() < 0.5:
-			file += random.randbytes(random.randrange(0, remaining))
+			file += random_bytes(random.randrange(0, remaining))
 		else:
 			file += sigs[v][0]
 			remaining_virus_size -= len(sigs[v][0])
 			v += 1
 
 	if len(file) < file_size:
-		file += random.randbytes(file_size - len(file))
+		file += random_bytes(file_size - len(file))
 
 	return (f"virus-{idx:04}-" + '+'.join(map(lambda s: s[1], sigs))), file
 
