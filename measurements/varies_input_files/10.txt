@@ -1,0 +1,25 @@
+cache hash: 2e69a5c57bdd88631754514117aeb8fb66bfb02f29a3196dcc6df4502425bc4d
+cached results up to date
+
+running your implementation...
+ideally, this should not take so long (:
+time to beat: 55.257s
+-------------------------
+false positives:
+none
+-------------------------
+false negatives:
+none
+-------------------------
+
+summary:
+  true pos:    632
+  false pos:   0
+  false neg:   0
+
+time taken: 4.064s vs 55.257s
+speedup: 13.595x
+F-beta = 1.0000
+
+parallel speedup (for bonus): 0.150x
+
